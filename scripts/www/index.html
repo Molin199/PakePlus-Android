@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, maximum-scale=1.0, shrink-to-fit=no">
+    <title>村籍管家 · 离线版</title>
+    <!-- 离线优先：所有库均可缓存，首次联网后即可完全离线工作 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+    <!-- 可选 PWA 支持 (无需联网，仅用于“添加到主屏幕”体验) -->
+    <link rel="manifest" href="data:application/manifest+json,{name:'村籍管家',short_name:'村籍',display:'standalone',theme_color:'#1e6f5c',background_color:'#f5f7fb',icons:[]}">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Roboto', system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: #f5f7fb;
+            padding: 16px 12px 90px 12px;
+            color: #0f172a;
+            touch-action: pan-y;
+        }
+
+        ::-webkit-scrollbar { width: 3px; height: 3px; }
+        ::-webkit-scrollbar-thumb { background: #b9c7d9; border-radius: 20px; }
+
+        .app-header { margin-bottom: 14px; }
+        .title-section {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+        }
+        .title-section h1 {
+            font-size: 1.8rem;
+            font-weight: 650;
+            background: linear-gradient(135deg, #1e6f5c, #289672);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            letter-spacing: -0.3px;
+        }
+        .badge-offline {
+            background: #e6f0ec;
+            border-radius: 40px;
+            padding: 4px 10px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: #1e6f5c;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            border: 1px solid #cde0d7;
+        }
+        .title-section p { font-size: 0.7rem; color: #54708f; margin-top: 2px; }
+
+        .stats-row { display: flex; gap: 12px; margin: 12px 0; }
+        .stat-card {
+            background: white; border-radius: 28px; padding: 12px 16px;
+            flex: 1; box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+            border: 1px solid #eef2f6; text-align: center; transition: all 0.1s;
+        }
+        .stat-card:active { background: #fafdff; }
+        .stat-number { font-size: 2rem; font-weight: 800; color: #1e6f5c; line-height: 1.2; }
+        .stat-label { font-size: 0.7rem; color: #5b6e8c; letter-spacing: 0.3px; }
+
+        .group-filter {
+            background: white; border-radius: 28px; padding: 12px 14px;
+            margin-bottom: 16px; display: flex; align-items: center; gap: 12px;
+            flex-wrap: wrap; border: 1px solid #eef2f6;
+        }
+        .group-filter span { font-size: 0.8rem; font-weight: 500; color: #2c3e50; display: flex; align-items: center; gap: 5px; }
+        .group-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+        .group-btn {
+            background: #f1f5f9; border: none; padding: 8px 16px; border-radius: 40px;
+            font-size: 0.8rem; font-weight: 500; color: #1e293b; cursor: pointer;
+            transition: 0.1s; touch-action: manipulation; border: 1px solid transparent;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02); display: inline-flex; align-items: center; gap: 4px;
+        }
+        .group-btn.active { background: #1e6f5c; color: white; border-color: #1a5e4e; }
+        .group-btn:active { transform: scale(0.96); background: #cbdde0; }
+        .group-count { font-size: 0.65rem; opacity: 0.8; }
+
+        .action-buttons { display: flex; gap: 12px; margin-bottom: 16px; }
+        .action-btn {
+            flex: 1; background: white; border: 1px solid #dce5ef; padding: 12px 0;
+            border-radius: 48px; font-size: 0.85rem; font-weight: 600; color: #1e6f5c;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            cursor: pointer; transition: 0.1s; touch-action: manipulation; box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+        .action-btn:active { background: #e6f0ec; transform: scale(0.97); }
+
+        .search-section {
+            background: white; border-radius: 28px; padding: 12px 14px;
+            margin-bottom: 18px; border: 1px solid #eef2f6;
+        }
+        .search-box {
+            display: flex; align-items: center; background: #f1f5f9; border-radius: 40px;
+            padding: 6px 18px; gap: 10px;
+        }
+        .search-box:focus-within { background: #ffffff; box-shadow: 0 0 0 2px #cbdbe0; }
+        .search-box i { color: #5f7d9c; font-size: 1rem; }
+        .search-box input {
+            flex: 1; border: none; background: transparent; font-size: 1rem;
+            outline: none; padding: 10px 0; touch-action: manipulation;
+        }
+        .clear-search {
+            background: transparent; border: none; padding: 8px 6px;
+            color: #7c8ba0; font-size: 1.2rem; cursor: pointer; touch-action: manipulation;
+        }
+        .filter-row { display: flex; margin-top: 12px; gap: 10px; flex-wrap: wrap; }
+        .filter-group {
+            flex: 1; background: #f1f5f9; border-radius: 40px; padding: 6px 14px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .filter-group i { font-size: 0.9rem; color: #1e6f5c; }
+        .filter-group select {
+            background: transparent; border: none; flex: 1; font-size: 0.9rem;
+            outline: none; font-weight: 500; padding: 8px 0; touch-action: manipulation;
+        }
+
+        .fab {
+            position: fixed; bottom: 24px; right: 20px; background: #1e6f5c;
+            width: 56px; height: 56px; border-radius: 30px; display: flex;
+            align-items: center; justify-content: center; box-shadow: 0 6px 16px rgba(30,111,92,0.3);
+            color: white; font-size: 26px; cursor: pointer; z-index: 100; border: none;
+            touch-action: manipulation; transition: 0.15s;
+        }
+        .fab:active { transform: scale(0.92); background: #155a4b; }
+
+        .person-list { display: flex; flex-direction: column; gap: 16px; }
+        .card {
+            background: white; border-radius: 28px; padding: 18px 16px;
+            border: 1px solid #edf2f7; transition: 0.1s; box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+            touch-action: pan-y;
+        }
+        .card:active { background: #fdfdfe; }
+        .card-header {
+            display: flex; justify-content: space-between; align-items: flex-start;
+            margin-bottom: 14px; flex-wrap: wrap; gap: 8px;
+        }
+        .person-name {
+            font-size: 1.2rem; font-weight: 700; display: flex;
+            align-items: center; gap: 8px; flex-wrap: wrap;
+        }
+        .status-badge { font-size: 0.7rem; padding: 4px 12px; border-radius: 40px; font-weight: 600; }
+        .status-active { background: #e0f2e9; color: #1e6f5c; }
+        .status-moved { background: #fff0e0; color: #b45309; }
+        .status-deceased { background: #ffe7e5; color: #b91c1c; }
+        .role-badge, .household-badge, .subsidy-badge {
+            font-size: 0.7rem; padding: 4px 12px; border-radius: 40px; font-weight: 500;
+        }
+        .role-badge { background: #eef2ff; color: #2c5f8a; }
+        .household-badge { background: #fef9e3; color: #b45309; }
+        .subsidy-badge { background: #e6f7f0; color: #117f5a; }
+        .relation-badge {
+            font-size: 0.7rem; padding: 4px 12px; border-radius: 40px; background: #f1e8ff; color: #5e3c8a;
+        }
+        .info-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px;
+            margin: 14px 0; font-size: 0.8rem;
+        }
+        .info-item {
+            display: flex; align-items: center; gap: 8px; color: #1e2f44; word-break: break-word;
+        }
+        .info-item i { width: 22px; color: #6f8fae; font-size: 0.85rem; }
+        .card-actions {
+            display: flex; justify-content: flex-end; gap: 18px; margin-top: 10px;
+            border-top: 1px solid #ecf3fa; padding-top: 14px;
+        }
+        .card-actions button {
+            background: none; border: none; font-size: 0.85rem; font-weight: 600;
+            display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px;
+            border-radius: 40px; cursor: pointer; touch-action: manipulation; transition: 0.1s;
+        }
+        .btn-edit { color: #1e6f5c; background: #eef6f3; }
+        .btn-delete { color: #bc5a5a; background: #fef2f2; }
+        .btn-edit:active, .btn-delete:active { transform: scale(0.96); }
+        .empty-state {
+            text-align: center; padding: 56px 20px; background: white;
+            border-radius: 36px; color: #8da4bc;
+        }
+
+        .modal-mask {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.45); backdrop-filter: blur(4px);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 1000; visibility: hidden; opacity: 0; transition: 0.2s;
+        }
+        .modal-mask.active { visibility: visible; opacity: 1; }
+        .modal-container {
+            background: white; width: 92%; max-width: 520px; max-height: 82vh;
+            border-radius: 36px; overflow-y: auto; padding: 22px 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+        }
+        .modal-container h3 { font-size: 1.4rem; margin-bottom: 20px; font-weight: 650; }
+        .form-field { margin-bottom: 16px; }
+        .form-field label {
+            display: block; font-size: 0.75rem; font-weight: 700; margin-bottom: 6px;
+            color: #1e405e;
+        }
+        .form-field input, .form-field select {
+            width: 100%; padding: 12px 16px; border: 1.5px solid #dce5ef;
+            border-radius: 32px; font-size: 1rem; background: #fff; outline: none;
+            touch-action: manipulation;
+        }
+        .form-field input:focus, .form-field select:focus {
+            border-color: #1e6f5c; box-shadow: 0 0 0 3px rgba(30,111,92,0.12);
+        }
+        .modal-buttons { display: flex; gap: 14px; margin-top: 24px; }
+        .modal-buttons button {
+            flex: 1; padding: 14px 10px; border-radius: 48px; border: none;
+            font-weight: 700; font-size: 1rem; cursor: pointer; touch-action: manipulation;
+        }
+        .btn-save { background: #1e6f5c; color: white; box-shadow: 0 4px 8px rgba(30,111,92,0.2); }
+        .btn-cancel { background: #f1f5f9; color: #334155; }
+        .btn-save:active, .btn-cancel:active { transform: scale(0.97); }
+        footer {
+            text-align: center; font-size: 0.65rem; margin-top: 28px;
+            color: #8ba0bc; display: flex; justify-content: center; gap: 10px;
+        }
+        .file-input-hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="app-header">
+    <div class="title-section">
+        <h1><i class="fas fa-tree" style="font-size:1.6rem;"></i> 村籍管家</h1>
+        <div class="badge-offline"><i class="fas fa-database"></i> 离线·自动缓存</div>
+    </div>
+    <p>触摸优化 · 所有数据存于手机本地</p>
+    <div class="stats-row">
+        <div class="stat-card" id="statTotalPop">
+            <div class="stat-number" id="totalPopulation">0</div>
+            <div class="stat-label">总人口</div>
+        </div>
+        <div class="stat-card" id="statHouseholds">
+            <div class="stat-number" id="totalHouseholds">0</div>
+            <div class="stat-label">总户数</div>
+        </div>
+    </div>
+    <div class="group-filter">
+        <span><i class="fas fa-layer-group"></i> 村民小组</span>
+        <div class="group-buttons" id="groupButtons">
+            <button class="group-btn active" data-group="all">全部</button>
+        </div>
+    </div>
+    <div class="action-buttons">
+        <button class="action-btn" id="exportBtn"><i class="fas fa-download"></i> 导出</button>
+        <button class="action-btn" id="importBtn"><i class="fas fa-upload"></i> 导入</button>
+        <input type="file" id="fileInput" accept=".xlsx, .xls, .csv" class="file-input-hidden" />
+    </div>
+</div>
+
+<div class="search-section">
+    <div class="search-box">
+        <i class="fas fa-search"></i>
+        <input type="text" id="searchInput" placeholder="姓名、身份证、电话、地址..." autocomplete="off" enterkeyhint="search">
+        <button id="clearSearchBtn" class="clear-search" aria-label="清除"><i class="fas fa-times-circle"></i></button>
+    </div>
+    <div class="filter-row">
+        <div class="filter-group">
+            <i class="fas fa-user-tag"></i>
+            <select id="statusFilter">
+                <option value="all">全部状态</option>
+                <option value="active">正常</option>
+                <option value="movedOut">迁出</option>
+                <option value="deceased">死亡</option>
+                <option value="nonActive">迁出/死亡</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <i class="fas fa-hand-holding-heart"></i>
+            <select id="subsidyFilter">
+                <option value="all">全部低保</option>
+                <option value="无">无低保</option>
+                <option value="一类低保">一类低保</option>
+                <option value="二类低保">二类低保</option>
+                <option value="三类低保">三类低保</option>
+                <option value="四类低保">四类低保</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<div id="personListContainer" class="person-list">
+    <div class="empty-state"><i class="fas fa-people-arrows"></i><p>加载本地数据中…</p></div>
+</div>
+
+<button class="fab" id="addBtn" aria-label="添加人口"><i class="fas fa-plus"></i></button>
+
+<!-- 模态框 -->
+<div id="modal" class="modal-mask">
+    <div class="modal-container">
+        <h3 id="modalTitle">📝 人口信息</h3>
+        <form id="personForm">
+            <input type="hidden" id="personId">
+            <div class="form-field"><label>全名 *</label><input type="text" id="name" required placeholder="例如：张三"></div>
+            <div class="form-field"><label>身份证号码 *</label><input type="text" id="idCard" required placeholder="18位"></div>
+            <div class="form-field"><label>联系电话</label><input type="tel" id="phone" placeholder="手机号码"></div>
+            <div class="form-field"><label>户主姓名</label><input type="text" id="householder" placeholder="户主"></div>
+            <!-- 新增：与户主关系 -->
+            <div class="form-field"><label>与户主关系</label>
+                <select id="relationToHouseholder">
+                    <option value="户主">户主</option>
+                    <option value="配偶">配偶</option>
+                    <option value="子">子</option>
+                    <option value="女">女</option>
+                    <option value="父">父</option>
+                    <option value="母">母</option>
+                    <option value="其他">其他</option>
+                </select>
+            </div>
+            <div class="form-field"><label>户性质</label><select id="householdNature"><option value="已脱贫户">已脱贫户</option><option value="监测户">监测户</option><option value="一般户">一般户</option></select></div>
+            <div class="form-field"><label>低保类别</label><select id="subsidyLevel"><option value="无">无低保</option><option value="一类低保">一类低保</option><option value="二类低保">二类低保</option><option value="三类低保">三类低保</option><option value="四类低保">四类低保</option></select></div>
+            <div class="form-field"><label>社保卡号</label><input type="text" id="socialSecurityCard" placeholder="社保卡号"></div>
+            <div class="form-field"><label>家庭住址 *</label><input type="text" id="address" required placeholder="详细地址"></div>
+            <div class="form-field"><label>村民小组</label><input type="text" id="groupName" placeholder="例: 1组"></div>
+            <div class="form-field"><label>干部/公益岗</label><select id="roleType"><option value="none">普通村民</option><option value="cadre">村干部</option><option value="welfare">公益性岗位</option></select></div>
+            <div class="form-field"><label>状态</label><select id="status"><option value="active">正常</option><option value="movedOut">迁出</option><option value="deceased">死亡</option></select></div>
+            <div class="modal-buttons"><button type="button" class="btn-cancel" id="closeModalBtn">取消</button><button type="submit" class="btn-save">保存</button></div>
+        </form>
+    </div>
+</div>
+
+<footer>
+    <span><i class="far fa-save"></i> 数据自动缓存至本地</span>
+    <span>· 无需网络 ·</span>
+</footer>
+
+<script>
+    (function(){
+        "use strict";
+
+        // ---------- 数据库 (新增 relationToHouseholder 字段) ----------
+        const db = new Dexie('VillagePopulationDB');
+        db.version(5).stores({
+            population: '++id, idCard, name, phone, householder, relationToHouseholder, status, roleType, address, groupName, householdNature, subsidyLevel, socialSecurityCard'
+        }).upgrade(tx => {
+            return tx.table('population').toCollection().modify(p => {
+                if (p.subsidyLevel === undefined) p.subsidyLevel = '无';
+                if (!p.groupName) p.groupName = '';
+                if (!p.householdNature) p.householdNature = '一般户';
+                if (p.socialSecurityCard === undefined) p.socialSecurityCard = '';
+                if (p.relationToHouseholder === undefined) p.relationToHouseholder = '';
+                if (!['已脱贫户','监测户','一般户'].includes(p.householdNature)) p.householdNature = '一般户';
+            });
+        });
+        db.open().catch(e => console.warn("db open", e));
+
+        // 全局筛选状态
+        let currentSearchKeyword = '';
+        let currentStatusFilter = 'all';
+        let currentGroupFilter = 'all';
+        let currentSubsidyFilter = 'all';
+
+        // 辅助函数
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/[&<>]/g, m => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' }[m]));
+        }
+
+        async function isIdCardDuplicate(idCard, excludeId = null) {
+            const record = await db.population.where('idCard').equals(idCard).first();
+            return record && record.id !== excludeId;
+        }
+
+        async function getAllData() {
+            return await db.population.toArray();
+        }
+
+        // 筛选逻辑
+        async function getFilteredData() {
+            let all = await db.population.toArray();
+            let filtered = all;
+            if (currentGroupFilter !== 'all') {
+                filtered = filtered.filter(p => p.groupName === currentGroupFilter);
+            }
+            if (currentSearchKeyword.trim()) {
+                const kw = currentSearchKeyword.trim().toLowerCase();
+                filtered = filtered.filter(p => 
+                    (p.name && p.name.toLowerCase().includes(kw)) ||
+                    (p.idCard && p.idCard.toLowerCase().includes(kw)) ||
+                    (p.phone && p.phone.toLowerCase().includes(kw)) ||
+                    (p.householder && p.householder.toLowerCase().includes(kw)) ||
+                    (p.socialSecurityCard && p.socialSecurityCard.toLowerCase().includes(kw)) ||
+                    (p.address && p.address.toLowerCase().includes(kw))
+                );
+            }
+            if (currentStatusFilter !== 'all') {
+                if (currentStatusFilter === 'active') filtered = filtered.filter(p => p.status === 'active');
+                else if (currentStatusFilter === 'movedOut') filtered = filtered.filter(p => p.status === 'movedOut');
+                else if (currentStatusFilter === 'deceased') filtered = filtered.filter(p => p.status === 'deceased');
+                else if (currentStatusFilter === 'nonActive') filtered = filtered.filter(p => p.status === 'movedOut' || p.status === 'deceased');
+            }
+            if (currentSubsidyFilter !== 'all') {
+                filtered = filtered.filter(p => (p.subsidyLevel || '无') === currentSubsidyFilter);
+            }
+            return filtered;
+        }
+
+        // 统计卡片
+        async function updateStatistics() {
+            const filtered = await getFilteredData();
+            const totalPop = filtered.length;
+            const householdSet = new Set();
+            filtered.forEach(p => {
+                const key = p.householder && p.householder.trim() !== '' 
+                    ? `${p.householder.trim()}|${p.address?.trim() || ''}`
+                    : `${p.name?.trim()}|${p.address?.trim() || ''}`;
+                householdSet.add(key);
+            });
+            document.getElementById('totalPopulation').innerText = totalPop;
+            document.getElementById('totalHouseholds').innerText = householdSet.size;
+        }
+
+        // 渲染小组按钮 (全部 = 各组人数总和)
+        async function renderGroupButtons() {
+            const all = await getAllData();
+            const groupMap = new Map();
+            all.forEach(p => {
+                const g = p.groupName?.trim() || '';
+                if (g) groupMap.set(g, (groupMap.get(g) || 0) + 1);
+            });
+            const groups = Array.from(groupMap.keys()).sort();
+            const container = document.getElementById('groupButtons');
+            const totalAll = all.length;
+            let html = `<button class="group-btn ${currentGroupFilter === 'all' ? 'active' : ''}" data-group="all">全部 <span class="group-count">(${totalAll})</span></button>`;
+            groups.forEach(g => {
+                const count = groupMap.get(g);
+                html += `<button class="group-btn ${currentGroupFilter === g ? 'active' : ''}" data-group="${escapeHtml(g)}">${escapeHtml(g)} <span class="group-count">(${count})</span></button>`;
+            });
+            container.innerHTML = html;
+            document.querySelectorAll('.group-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    currentGroupFilter = btn.dataset.group;
+                    renderGroupButtons();
+                    renderList();
+                });
+            });
+        }
+
+        // 渲染列表 (卡片增加与户主关系)
+        async function renderList() {
+            const container = document.getElementById('personListContainer');
+            try {
+                const filtered = await getFilteredData();
+                if (filtered.length === 0) {
+                    container.innerHTML = `<div class="empty-state"><i class="fas fa-user-slash"></i><p>暂无记录<br>点击右下角➕添加</p></div>`;
+                    await updateStatistics();
+                    return;
+                }
+                let html = '';
+                for (let p of filtered) {
+                    let statusText = '', statusClass = '';
+                    if (p.status === 'active') { statusText = '正常'; statusClass = 'status-active'; }
+                    else if (p.status === 'movedOut') { statusText = '迁出'; statusClass = 'status-moved'; }
+                    else { statusText = '死亡'; statusClass = 'status-deceased'; }
+                    
+                    let roleDisplay = p.roleType === 'cadre' ? '村干部' : (p.roleType === 'welfare' ? '公益性岗位' : '');
+                    let roleBadge = roleDisplay ? `<span class="role-badge">${roleDisplay}</span>` : '';
+                    let groupShow = p.groupName ? `<span class="role-badge" style="background:#e9f0e9;">${escapeHtml(p.groupName)}</span>` : '';
+                    let householdBadge = `<span class="household-badge">${escapeHtml(p.householdNature || '一般户')}</span>`;
+                    let subsidyLevel = p.subsidyLevel || '无';
+                    let subsidyBadge = subsidyLevel !== '无' ? `<span class="subsidy-badge">${escapeHtml(subsidyLevel)}</span>` : '';
+                    
+                    let relation = p.relationToHouseholder || '户主';
+                    let relationBadge = `<span class="relation-badge"><i class="fas fa-user-friends" style="margin-right:4px;"></i>${escapeHtml(relation)}</span>`;
+
+                    html += `
+                        <div class="card" data-id="${p.id}">
+                            <div class="card-header">
+                                <div class="person-name">
+                                    <strong>${escapeHtml(p.name)}</strong>
+                                    <span class="status-badge ${statusClass}">${statusText}</span>
+                                    ${roleBadge}${groupShow}${householdBadge}${subsidyBadge}${relationBadge}
+                                </div>
+                            </div>
+                            <div class="info-grid">
+                                <div class="info-item"><i class="fas fa-id-card"></i> ${escapeHtml(p.idCard)}</div>
+                                <div class="info-item"><i class="fas fa-phone-alt"></i> ${escapeHtml(p.phone) || '—'}</div>
+                                <div class="info-item"><i class="fas fa-user"></i> 户主：${escapeHtml(p.householder) || '—'}</div>
+                                <div class="info-item"><i class="fas fa-credit-card"></i> 社保卡：${escapeHtml(p.socialSecurityCard) || '—'}</div>
+                                <div class="info-item"><i class="fas fa-location-dot"></i> ${escapeHtml(p.address)}</div>
+                                <div class="info-item"><i class="fas fa-users"></i> 关系：${escapeHtml(relation)}</div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn-edit" data-id="${p.id}"><i class="fas fa-edit"></i> 编辑</button>
+                                <button class="btn-delete" data-id="${p.id}"><i class="fas fa-trash-alt"></i> 删除</button>
+                            </div>
+                        </div>
+                    `;
+                }
+                container.innerHTML = html;
+                document.querySelectorAll('.btn-edit').forEach(btn => btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openEditModal(parseInt(btn.dataset.id));
+                }));
+                document.querySelectorAll('.btn-delete').forEach(btn => btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if(confirm('确定永久删除该人员？')) {
+                        await db.population.delete(parseInt(btn.dataset.id));
+                        await refreshAll();
+                    }
+                }));
+                await updateStatistics();
+            } catch(err) {
+                container.innerHTML = `<div class="empty-state">加载失败，请刷新</div>`;
+            }
+        }
+
+        async function refreshAll() {
+            await renderGroupButtons();
+            await renderList();
+        }
+
+        // 模态框
+        const modal = document.getElementById('modal');
+        function showModal(show) { 
+            if(show) modal.classList.add('active'); 
+            else modal.classList.remove('active'); 
+        }
+
+        async function openEditModal(id) {
+            const p = await db.population.get(id);
+            if(!p) return;
+            document.getElementById('modalTitle').innerText = '✏️ 编辑居民';
+            document.getElementById('personId').value = p.id;
+            document.getElementById('name').value = p.name || '';
+            document.getElementById('idCard').value = p.idCard || '';
+            document.getElementById('phone').value = p.phone || '';
+            document.getElementById('householder').value = p.householder || '';
+            document.getElementById('relationToHouseholder').value = p.relationToHouseholder || '户主';
+            document.getElementById('householdNature').value = p.householdNature || '一般户';
+            document.getElementById('subsidyLevel').value = p.subsidyLevel || '无';
+            document.getElementById('socialSecurityCard').value = p.socialSecurityCard || '';
+            document.getElementById('address').value = p.address || '';
+            document.getElementById('groupName').value = p.groupName || '';
+            document.getElementById('roleType').value = p.roleType || 'none';
+            document.getElementById('status').value = p.status || 'active';
+            showModal(true);
+        }
+
+        function openAddModal() {
+            document.getElementById('modalTitle').innerText = '➕ 添加新人口';
+            document.getElementById('personForm').reset();
+            document.getElementById('personId').value = '';
+            document.getElementById('householdNature').value = '一般户';
+            document.getElementById('subsidyLevel').value = '无';
+            document.getElementById('roleType').value = 'none';
+            document.getElementById('status').value = 'active';
+            document.getElementById('relationToHouseholder').value = '户主';
+            showModal(true);
+        }
+
+        async function savePerson(e) {
+            e.preventDefault();
+            const id = document.getElementById('personId').value;
+            const name = document.getElementById('name').value.trim();
+            const idCard = document.getElementById('idCard').value.trim();
+            const phone = document.getElementById('phone').value.trim();
+            const householder = document.getElementById('householder').value.trim();
+            const relationToHouseholder = document.getElementById('relationToHouseholder').value;
+            const householdNature = document.getElementById('householdNature').value;
+            const subsidyLevel = document.getElementById('subsidyLevel').value;
+            const socialSecurityCard = document.getElementById('socialSecurityCard').value.trim();
+            const address = document.getElementById('address').value.trim();
+            const groupName = document.getElementById('groupName').value.trim();
+            const roleType = document.getElementById('roleType').value;
+            const status = document.getElementById('status').value;
+
+            if(!name || !idCard || !address) { alert('请填写姓名、身份证、住址'); return; }
+            if(!/^[1-9]\d{5}(18|19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{3}[\dXx]$/.test(idCard)) { alert('身份证格式不正确'); return; }
+            
+            const editId = id ? parseInt(id) : null;
+            if(await isIdCardDuplicate(idCard, editId)) { alert('身份证号码已存在'); return; }
+
+            const personData = { name, idCard, phone, householder, relationToHouseholder, householdNature, subsidyLevel, socialSecurityCard, address, groupName, roleType, status };
+            if(editId) await db.population.update(editId, personData);
+            else await db.population.add(personData);
+            
+            showModal(false);
+            await refreshAll();
+        }
+
+        // 导出Excel 兼容浏览器+安卓APP打包环境
+        async function exportToExcel() {
+            try {
+                const all = await db.population.toArray();
+                const wsData = all.map(p => ({
+                    '姓名': p.name,
+                    '身份证号': p.idCard,
+                    '联系电话': p.phone,
+                    '户主': p.householder,
+                    '与户主关系': p.relationToHouseholder || '户主',
+                    '户性质': p.householdNature,
+                    '低保类别': p.subsidyLevel || '无',
+                    '社保卡号': p.socialSecurityCard,
+                    '家庭住址': p.address,
+                    '村民小组': p.groupName,
+                    '干部岗位': p.roleType === 'cadre' ? '村干部' : (p.roleType === 'welfare' ? '公益性岗位' : '普通村民'),
+                    '状态': p.status === 'active' ? '正常' : (p.status === 'movedOut' ? '迁出' : '死亡')
+                }));
+
+                const wb = XLSX.utils.book_new();
+                const ws = XLSX.utils.json_to_sheet(wsData);
+                XLSX.utils.book_append_sheet(wb, ws, '户籍人口');
+                
+                const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                const blob = new Blob([wbout], { type: 'application/octet-stream' });
+                const url = URL.createObjectURL(blob);
+                const fileName = `村户籍数据_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.xlsx`;
+
+                if (window.plus) {
+                    plus.io.requestFileSystem(plus.io.PUBLIC_DOWNLOADS, function(fs) {
+                        fs.root.getFile(fileName, { create: true, exclusive: false }, function(fileEntry) {
+                            fileEntry.createWriter(function(writer) {
+                                writer.onwriteend = function() {
+                                    plus.nativeUI.toast("✅ 导出成功！文件保存至手机下载目录");
+                                    URL.revokeObjectURL(url);
+                                };
+                                writer.onerror = function() {
+                                    plus.nativeUI.toast("❌ 导出失败，文件写入异常");
+                                };
+                                writer.write(blob);
+                            }, function() {
+                                plus.nativeUI.toast("❌ 导出失败，无法创建文件");
+                            });
+                        });
+                    }, function(e) {
+                        plus.nativeUI.toast("❌ 导出失败，请开启存储权限");
+                    });
+                } else {
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = fileName;
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 100);
+                    alert("✅ 浏览器端导出完成");
+                }
+            } catch (e) {
+                alert("❌ 导出失败：" + e.message);
+            }
+        }
+
+        // 导入Excel (解析关系字段)
+        function importExcel(file) {
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(sheet);
+                let added = 0, updated = 0, errors = 0;
+                for(let row of rows) {
+                    let name = row['姓名'] || '';
+                    let idCard = row['身份证号'] ? String(row['身份证号']).trim() : '';
+                    let phone = row['联系电话'] ? String(row['联系电话']) : '';
+                    let householder = row['户主'] || '';
+                    let relationToHouseholder = row['与户主关系'] || '户主';
+                    let householdNature = row['户性质'] || '一般户';
+                    if (!['已脱贫户','监测户','一般户'].includes(householdNature)) householdNature = '一般户';
+                    let subsidyLevel = row['低保类别'] || '无';
+                    if (!['无','一类低保','二类低保','三类低保','四类低保'].includes(subsidyLevel)) subsidyLevel = '无';
+                    let socialSecurityCard = row['社保卡号'] ? String(row['社保卡号']) : '';
+                    let address = row['家庭住址'] || '';
+                    let groupName = row['村民小组'] || '';
+                    let roleRaw = row['干部岗位'] || '';
+                    let roleType = 'none';
+                    if(roleRaw.includes('村干部')) roleType = 'cadre';
+                    else if(roleRaw.includes('公益性岗位')) roleType = 'welfare';
+                    let statusRaw = row['状态'] || '正常';
+                    let status = 'active';
+                    if(statusRaw === '迁出') status = 'movedOut';
+                    else if(statusRaw === '死亡') status = 'deceased';
+                    
+                    if(!name || !idCard || !address) { errors++; continue; }
+                    if(!/^[1-9]\d{5}(18|19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{3}[\dXx]$/.test(idCard)) { errors++; continue; }
+                    
+                    const exist = await db.population.where('idCard').equals(idCard).first();
+                    const personData = { name, idCard, phone, householder, relationToHouseholder, householdNature, subsidyLevel, socialSecurityCard, address, groupName, roleType, status };
+                    if(exist) { await db.population.update(exist.id, personData); updated++; }
+                    else { await db.population.add(personData); added++; }
+                }
+                alert(`导入完成：新增 ${added}，更新 ${updated}，跳过 ${errors} 条`);
+                await refreshAll();
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // 事件绑定
+        function bindEvents() {
+            document.getElementById('searchInput').addEventListener('input', (e) => {
+                currentSearchKeyword = e.target.value;
+                renderList();
+            });
+            document.getElementById('statusFilter').addEventListener('change', (e) => {
+                currentStatusFilter = e.target.value;
+                renderList();
+            });
+            document.getElementById('subsidyFilter').addEventListener('change', (e) => {
+                currentSubsidyFilter = e.target.value;
+                renderList();
+            });
+            document.getElementById('clearSearchBtn').addEventListener('click', () => {
+                document.getElementById('searchInput').value = '';
+                currentSearchKeyword = '';
+                renderList();
+            });
+            document.getElementById('addBtn').addEventListener('click', openAddModal);
+            document.getElementById('closeModalBtn').addEventListener('click', () => showModal(false));
+            modal.addEventListener('click', (e) => { if(e.target === modal) showModal(false); });
+            document.getElementById('personForm').addEventListener('submit', savePerson);
+            document.getElementById('exportBtn').addEventListener('click', exportToExcel);
+            document.getElementById('importBtn').addEventListener('click', () => document.getElementById('fileInput').click());
+            document.getElementById('fileInput').addEventListener('change', (e) => {
+                if(e.target.files.length) { importExcel(e.target.files[0]); e.target.value = ''; }
+            });
+            document.getElementById('statTotalPop').addEventListener('click', refreshAll);
+            document.getElementById('statHouseholds').addEventListener('click', refreshAll);
+        }
+
+        // 初始化演示数据 (包含关系字段)
+        async function initDemoData() {
+            const count = await db.population.count();
+            if(count === 0) {
+                const demo = [
+                    { name:'李正民', idCard:'41010119900307663X', phone:'13812345678', householder:'李正民', relationToHouseholder:'户主', householdNature:'已脱贫户', subsidyLevel:'二类低保', socialSecurityCard:'A12345678', address:'绿柳村1组12号', groupName:'1组', roleType:'cadre', status:'active' },
+                    { name:'王桂香', idCard:'410101198505157891', phone:'15987654321', householder:'李正民', relationToHouseholder:'配偶', householdNature:'已脱贫户', subsidyLevel:'二类低保', socialSecurityCard:'B98765432', address:'绿柳村1组12号', groupName:'1组', roleType:'none', status:'active' },
+                    { name:'张根生', idCard:'410101197812051234', phone:'15233445566', householder:'张根生', relationToHouseholder:'户主', householdNature:'监测户', subsidyLevel:'一类低保', socialSecurityCard:'C11223344', address:'绿柳村2组8号', groupName:'2组', roleType:'welfare', status:'active' },
+                    { name:'陈德厚', idCard:'410101196511223344', phone:'13677889900', householder:'陈德厚', relationToHouseholder:'户主', householdNature:'一般户', subsidyLevel:'无', socialSecurityCard:'D55443322', address:'绿柳村3组5号', groupName:'3组', roleType:'none', status:'movedOut' },
+                    { name:'赵素珍', idCard:'410101200105074455', phone:'18899001122', householder:'陈德厚', relationToHouseholder:'配偶', householdNature:'一般户', subsidyLevel:'三类低保', socialSecurityCard:'E99887766', address:'绿柳村3组5号', groupName:'3组', roleType:'none', status:'deceased' }
+                ];
+                for(let p of demo) await db.population.add(p);
+            }
+            await refreshAll();
+        }
+
+        bindEvents();
+        initDemoData().then(() => console.log('村籍管家·离线版 (含户主关系) 已就绪'));
+    })();
+</script>
+</body>
+</html>
